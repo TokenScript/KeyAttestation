@@ -7,5 +7,4 @@ secrets.json
 .env
 .openzeppelin/
 build
-package-lock.json
 
