@@ -5,6 +5,8 @@ Key Management for OffChain Attestations
 
 - setup node
 ```> cd contracts```
+
 ```> npm install```
+
 ```> npm test```
 
