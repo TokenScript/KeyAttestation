@@ -7,39 +7,37 @@ import { SchemaRecord, ISchemaRegistry } from "@ethereum-attestation-service/eas
 import { Attestation } from "@ethereum-attestation-service/eas-contracts/contracts/Common.sol";
 import { IEAS, EAS } from "@ethereum-attestation-service/eas-contracts/contracts/EAS.sol";
 import "./interface/IUseKeyAttestation.sol";
-
-interface IKeyResolver is ISchemaResolver {
-    function validateSignature(bytes32 rootUID, address signer) external view returns (bool isValid); 
-}
+import "./interface/IKeyResolver.sol";
 
 abstract contract UseKeyAttestation is IUseKeyAttestation {
-    address _resolver;
-    bytes32 _keyUID;
-    IKeyResolver _keyResolver;
+    address immutable EAS_ADDRESS;
+    bytes32 keyUID;
+    IKeyResolver keyResolver;
 
-    constructor(bytes32 keyUID, address resolverAddress) {
-        _resolver = resolverAddress;
-        _updateKeyUID(keyUID);
+    constructor(bytes32 _keyUID, address _easAddress) {
+        EAS_ADDRESS = _easAddress;
+        _updateKeyUID(_keyUID);
     }
 
-    function _updateKeyUID(bytes32 keyUID) internal {
-        _keyUID = keyUID;
+    // TODO do we need to be able to update _easAddress? do we suppose it will stay static
+    function _updateKeyUID(bytes32 _keyUID) internal {
+        keyUID = _keyUID;
 
-        IEAS easResolver = IEAS(_resolver);
+        IEAS easResolver = IEAS(EAS_ADDRESS);
         //get schema UID
-        bytes32 schema = easResolver.getAttestation(keyUID).schema;
+        bytes32 schema = easResolver.getAttestation(_keyUID).schema;
 
         //get standard schema resolver
         ISchemaRegistry schemaRegistry = ISchemaRegistry(easResolver.getSchemaRegistry());
         //get schema for the attestation
         SchemaRecord memory thisSchema = schemaRegistry.getSchema(schema);
-        _keyResolver = IKeyResolver(address(thisSchema.resolver));
+        keyResolver = IKeyResolver(address(thisSchema.resolver));
     }
 
     //TODO: fine grained attestation failure (key expired, wrong key, key revoked)
     function validateKey(address attestationSigningAddress) external view returns (bool isValid) {
 
         //validate attestation
-        isValid = _keyResolver.validateSignature(_keyUID, attestationSigningAddress);
+        isValid = keyResolver.validateSignature(keyUID, attestationSigningAddress);
     }
 }

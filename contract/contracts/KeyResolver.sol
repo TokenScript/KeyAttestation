@@ -12,6 +12,9 @@ import { EMPTY_UID, EIP712Signature, Attestation } from "@ethereum-attestation-s
 import { IEAS, RevocationRequest, RevocationRequestData } from "@ethereum-attestation-service/eas-contracts/contracts/IEAS.sol";
 import { SchemaResolver } from "@ethereum-attestation-service/eas-contracts/contracts/resolver/SchemaResolver.sol";
 
+import { ERC5169 } from "stl-contracts/ERC/ERC5169.sol";
+import "./interface/IKeyResolver.sol";
+
 library _AddressUtil {
     /**
      * @dev Returns true if `account` is a contract.
@@ -42,32 +45,16 @@ library _AddressUtil {
     }
 }
 
-interface IERC5169 {
-    /// @dev This event emits when the scriptURI is updated, 
-    /// so wallets implementing this interface can update a cached script
-    event ScriptUpdate(string newScriptURI);
-
-    /// @notice Get the scriptURI for the contract
-    /// @return The scriptURI
-    function scriptURI() external view returns(string memory);
-	
-    /// @notice Update the scriptURI
-    /// emits event ScriptUpdate(string memory newScriptURI);
-    function updateScriptURI(string memory newScriptURI) external;
-}
-
-contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
+contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169, Ownable {
 
     address public attester;
     using Strings for uint256;
 
-    bytes32 private constant tokenIdMask        = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000;
+    bytes32 private constant TOKEN_ID_MASK        = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000;
 
-    string private constant _baseTokenMetadataURI = "http://smarttokenlabs.duckdns.org:8081/keymetadata/";
+    string private constant BASE_TOKEN_METADATA_URI = "http://smarttokenlabs.duckdns.org:8081/keymetadata/";
 
-    string private _scriptURI;
-
-    string private constant _contractURI = "ipfs://QmY6D8ga9hvSKqAxXntU7xi58fmgKoD99T51zT8eSSGqbL";
+    string private constant CONTRACT_URI = "ipfs://QmY6D8ga9hvSKqAxXntU7xi58fmgKoD99T51zT8eSSGqbL";
 
     mapping(bytes32 => bytes32[]) rootKeyMap;
     mapping(uint256 => bytes32) tokenIdUIDMap;
@@ -76,11 +63,20 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
         attester = msg.sender;
     }
 
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721Enumerable, ERC5169) returns (bool) {
+        return
+            ERC5169.supportsInterface(interfaceId) ||
+            ERC721Enumerable.supportsInterface(interfaceId);
+    }
+
+    function _authorizeSetScripts(string[] memory newScriptURI) internal virtual override onlyOwner {}
+
     /// @notice Updates the attester for future
     /// @param newAttester The new attester address to be set in the contract state.
 
     function updateAttester(address newAttester) external {
         if (msg.sender != attester) revert();
+        if (address(0) == newAttester) revert("Address required");
         attester = newAttester;
     }
 
@@ -95,6 +91,7 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
     function onAttest(
         Attestation calldata attestation,
         uint256
+    // TODO test if internal OK here? if should not work
     ) internal virtual override returns (bool) {
         uint256 tokenId;
         // Root attestation or derivative key?
@@ -111,6 +108,7 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
             tokenId = rootTokenId(attestation.refUID);
             Attestation memory rootAttestation = _eas.getAttestation(attestation.refUID);
             require (attestation.attester == rootAttestation.attester || attestation.attester == ownerOf(tokenId), "Derivative key can only be created by root key owner"); //derivative can be issued by attestation root key or owner of root key NFT
+            // TODO tokenId will be ...1 ...2 ...4 ...7 fix
             tokenId += rootKeyMap[attestation.refUID].length;
             _mint(attestation.recipient, tokenId);
             rootKeyMap[attestation.refUID].push(attestation.uid);
@@ -133,7 +131,7 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
     }
 
     function contractURI() public pure returns (string memory) {
-        return _contractURI;
+        return CONTRACT_URI;
     }
 
     /// @notice Returns the metadata for given ID
@@ -158,7 +156,7 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
                 )
             );
 
-         return string(abi.encodePacked(_baseTokenMetadataURI, block.chainid.toString(), "/", contractAddress(), "?tokenId=", id.toHexString(), 
+         return string(abi.encodePacked(BASE_TOKEN_METADATA_URI, block.chainid.toString(), "/", contractAddress(), "?tokenId=", id.toHexString(), 
             "&uid=", tokenIdToUID(id).toHexString(), "&name=", name, getValidityData(attestation)));
     }
 
@@ -203,18 +201,31 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
         return Strings.toHexString(uint160(address(this)), 20);
     }
 
-    function validateSignature(bytes32 rootUID, address signer) public view returns (bool) {
+    function validateSignature(bytes32 rootUID, address signer) public view returns (bool result) {
         // Walk the keys for this rootUID and see if any match and haven't been revoked
         //now check derivative keys
         Attestation memory rootAttn = _eas.getAttestation(rootUID); 
-        for (uint256 i = 0; i < rootKeyMap[rootUID].length; i++) {
+        if (!isKeyValid(rootAttn)){
+            return false;
+        }
+        uint length = rootKeyMap[rootUID].length;
+        if (length == 1){
+            return verifySigner(rootAttn, signer);
+        }
+        for (uint256 i = 1; i < rootKeyMap[rootUID].length; i++) {
             bytes32 thisUID = rootKeyMap[rootUID][i];
-            Attestation memory thisAttn = _eas.getAttestation(thisUID);
-            if (signer == getSigningAddressFromAttestation(thisAttn) && isKeyValid(thisAttn) && isKeyValid(rootAttn)) { //keep checking all keys until true or we run out
+            Attestation memory thisAttn = _eas.getAttestation(thisUID);  
+            if (verifySigner(thisAttn, signer)){
                 return true;
             }
         }
+        return false;
+    }
 
+    function verifySigner(Attestation memory attn, address signer) internal view returns(bool){
+        if (signer == getSigningAddressFromAttestation(attn) && isKeyValid(attn)) { //keep checking all keys until true or we run out
+            return true;
+        }
         return false;
     }
 
@@ -292,6 +303,7 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
         Attestation memory attestation = _eas.getAttestation(tokenIdUIDMap[tokenId]);
         require(attestation.refUID == bytes32(0), "Only root token can be transferred");
         require(attestation.attester == msg.sender, "Only original root owner can transfer");
+        // TODO test transfer
         _safeTransfer(from, to, tokenId, _data);
     }
 
@@ -327,16 +339,6 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
         require(ownerOf(id) != msg.sender, "Recovery not required");
 
         _transfer(ownerOf(id), msg.sender, id);
-    }
-
-    //ERC5169
-    function scriptURI() public view override returns (string memory) {
-        return _scriptURI;
-    }
-
-    function updateScriptURI(string memory newScriptURI) public override onlyOwner {
-        _scriptURI = newScriptURI;
-        emit ScriptUpdate(newScriptURI);
     }
 
     //Utility functions
@@ -375,7 +377,7 @@ contract KeyResolver is SchemaResolver, ERC721Enumerable, IERC5169, Ownable {
 
     //TokenID top 27 bytes is UID, mask off lower bytes for individual tokenId
     function rootTokenId(bytes32 uid) private pure returns (uint256) {
-        return uint256(uid & tokenIdMask) + 1;
+        return uint256(uid & TOKEN_ID_MASK) + 1;
     }
 
 }

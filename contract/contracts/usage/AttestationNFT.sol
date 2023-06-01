@@ -12,15 +12,24 @@ import { ERC5169 } from "stl-contracts/ERC/ERC5169.sol";
 import { UseKeyAttestation } from "../UseKeyAttestation.sol";
 import { ASNAttestationDecoder } from "../ASNAttestation/ASNAttestationDecoder.sol";
 
+// just to esimate gas usage difference
+contract TestErc721 is ERC721 {
+    constructor() ERC721("", "") {}
+
+    function mint() external {
+        _mint(msg.sender,1);
+    }
+}
+
+// TODO should be Enumerable
 contract DoorAttestation is ERC721, Ownable, ERC5169, UseKeyAttestation, ASNAttestationDecoder {
     using Strings for uint256;
     using Counters for Counters.Counter;
 
-    uint private _maxSupply = 10000;
+    // unused
+    // uint private _maxSupply = 10000;
 
-    constructor(bytes32 uid, address resolverAddress) ERC721("Door Attestation", "DATT") UseKeyAttestation(uid, resolverAddress) {
-
-    }
+    constructor(bytes32 uid, address resolverAddress) ERC721("Door Attestation", "DATT") UseKeyAttestation(uid, resolverAddress) {}
 
     function contractURI() public pure returns (string memory) {
         return "ipfs://QmUUFFGVRKeW5dGMVTsTowuucDPxv5EadVsAoNT3cF5Ra1";
@@ -35,7 +44,8 @@ contract DoorAttestation is ERC721, Ownable, ERC5169, UseKeyAttestation, ASNAtte
         _updateKeyUID(keyUID);
     }
 
-    function mintUsingAttestation(bytes memory attestation) public payable returns (uint256) {
+    // no-payable, because we dont have withdraw code
+    function mintUsingAttestation(bytes memory attestation) public returns (uint256) {
         (address issuer, address subjectAddress, uint256 attestationId, bool timeStampValid) = verifyAttestation(attestation);
         //require (issuer == _issuerAddress, "Attestation not issued by correct authority");
         require (timeStampValid, "Attestion timestamp not valid");

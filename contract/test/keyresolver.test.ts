@@ -10,11 +10,15 @@ import exp from "constants";
 
 const { solidityKeccak256, hexlify, toUtf8Bytes } = utils;
 
+let abiCoder = new ethers.utils.AbiCoder();
+const asn1key = '0x308201333081ec06072a8648ce3d02013081e0020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f3044042000000000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000000704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414102010103420004ea4f8d88bf9738928426055abeaa127743f5512b580a59734326926592e15da057a42a40d8c6be657622d927df84988afbd4597aa98c56fe05f7d6afa38319d0';
+
 describe("KeyResolver.deploy", function () {
     let schemaRegistry: Contract;
     let EASContract: Contract;
     let keyResolver: Contract;
     let NFTWithAttestation: Contract;
+    let TestNft: Contract;
     let keySchemaUID: string;
     let rootKey1UID: string;
     let rootKey2UID: string;
@@ -127,6 +131,7 @@ describe("KeyResolver.deploy", function () {
         const resolver = keyResolver.address;
         const revocable = true;
 
+        // TODO test saved schema vs generated
         await schemaRegistry.connect(deployAddr).register(schema, resolver, revocable);
 
         keySchemaUID = getSchemaUID(schema, resolver, revocable);
@@ -147,8 +152,9 @@ describe("KeyResolver.deploy", function () {
             
             expirationTime = 0;
             revocable = true;
-            refUID = '0x0000000000000000000000000000000000000000000000000000000000000000';
-            data = '0x000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000008526f6f744b6579310000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000137308201333081ec06072a8648ce3d02013081e0020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f3044042000000000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000000704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414102010103420004ea4f8d88bf9738928426055abeaa127743f5512b580a59734326926592e15da057a42a40d8c6be657622d927df84988afbd4597aa98c56fe05f7d6afa38319d00000000000000000000000000000000000000000000000000000000000000000000000000000000040950c7c0bed23c3cac5cc31bbb9aad9bb5532387882670ac2b1cdf0799ab0ebc764c267f704e8fdda0796ab8397a4d2101024d24c4efff695b3a417f2ed0e48cd';
+            refUID = ZERO_BYTES32;
+
+            data = (abiCoder.encode(['string','bytes','bytes'],['RootKey1',asn1key,'0x950c7c0bed23c3cac5cc31bbb9aad9bb5532387882670ac2b1cdf0799ab0ebc764c267f704e8fdda0796ab8397a4d2101024d24c4efff695b3a417f2ed0e48cd']));
 
             rootKey1UID = await getUIDFromAttestTx(
                 EASContract.attest({
@@ -166,26 +172,26 @@ describe("KeyResolver.deploy", function () {
 
               console.log("Root Key #1 UID: " + rootKey1UID);
 
-              data = '0x000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010446572697661746976654b6579322d32000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000137308201333081ec06072a8648ce3d02013081e0020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f3044042000000000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000000704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414102010103420004ea4f8d88bf9738928426055abeaa127743f5512b580a59734326926592e15da057a42a40d8c6be657622d927df84988afbd4597aa98c56fe05f7d6afa38319d0000000000000000000000000000000000000000000000000000000000000000000000000000000004008d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34';
-
+              data = (abiCoder.encode(['string','bytes','bytes'],['DerivativeKey2-2',asn1key,'0x08d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34']));
+              let request = {
+                schema: keySchemaUID,
+                data: {
+                  recipient: deployAddr.address,
+                  expirationTime,
+                  revocable: true,
+                  refUID: rootKey1UID,
+                  data,
+                  value: 0
+                }
+              }
               //Now create a derivative key
               derivedKey1_1UID = await getUIDFromAttestTx(
-                EASContract.attest({
-                  schema: keySchemaUID,
-                  data: {
-                    recipient: deployAddr.address,
-                    expirationTime,
-                    revocable: true,
-                    refUID: rootKey1UID,
-                    data,
-                    value: 0
-                  }
-                })
+                EASContract.attest(request)
               );
 
               console.log("Derived Key #1 UID: " + derivedKey1_1UID);
 
-              data = '0x000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010446572697661746976654b6579322d32000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000137308201333081ec06072a8648ce3d02013081e0020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f3044042000000000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000000704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414102010103420004ea4f8d88bf9738928426055abeaa127743f5512b580a59734326926592e15da057a42a40d8c6be657622d927df84988afbd4597aa98c56fe05f7d6afa38319d00000000000000000000000000000000000000000000000000000000000000000000000000000000040367bbd2f14741cdb258578a08a6670f6157b0cc6901cb48695a650cb9f4aa66af2b9d106094bbb7d6c77d920645e8587b5a2ed9b7a8731299282c13b66fa8cd3';
+              data = (abiCoder.encode(['string','bytes','bytes'],['DerivativeKey2-2',asn1key,'0x367bbd2f14741cdb258578a08a6670f6157b0cc6901cb48695a650cb9f4aa66af2b9d106094bbb7d6c77d920645e8587b5a2ed9b7a8731299282c13b66fa8cd3']));
 
               derivedKey2_1UID = await getUIDFromAttestTx(
                 EASContract.attest({
@@ -217,6 +223,9 @@ describe("KeyResolver.deploy", function () {
             const AttestationNFT = await ethers.getContractFactory("DoorAttestation");
             NFTWithAttestation = await AttestationNFT.connect(deployAddr).deploy(rootKey1UID, EASContract.address);
 
+            const TestErc721 = await ethers.getContractFactory("TestErc721");
+            TestNft = await TestErc721.connect(deployAddr).deploy();
+
             console.log("NFT Attestation: " + NFTWithAttestation.address);
 
             console.log("User Address: " + nftUserAddr.address);
@@ -227,36 +236,30 @@ describe("KeyResolver.deploy", function () {
 
             console.log("Attempt to mint token 57 from attestation");
 
-            await NFTWithAttestation.connect(nftUserAddr).mintUsingAttestation(signedAttestation);
+            let tx = await NFTWithAttestation.connect(nftUserAddr).mintUsingAttestation(signedAttestation);
+            let txRes = await tx.wait();
+            console.log("Gas used to mint NFT: ", txRes.gasUsed.toString())
+
+            tx = await TestNft.mint();
+            txRes = await tx.wait();
+            console.log("Gas used to mint simple NFT: ", txRes.gasUsed.toString())
 
             //test balance
-            var bal = await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address);
+            expect( await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address)).equal(1);
 
-            console.log("Test NFT Bal for User: " + bal);
-
-            var owner = await NFTWithAttestation.connect(nftUserAddr).ownerOf(57);
-
-            console.log("Owner of TokenId 57: " + owner);
-
-            //revoke key
+            expect( (await NFTWithAttestation.connect(nftUserAddr).ownerOf(57)).toLowerCase()).equal(nftUserAddr.address.toLowerCase());
 
             console.log("Attempt to mint token 58 from attestation");
 
             //try to mint 58
             await NFTWithAttestation.connect(nftUserAddr).mintUsingAttestation(signedAttestation58);
 
-            var bal = await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address);
-
-            console.log("Test NFT Bal for User: " + bal);
-
-            expect(bal).to.equal(2);
+            expect( await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address)).equal(2);
 
             //60
             await NFTWithAttestation.connect(nftUserAddr).mintUsingAttestation(signedAttestation60);
 
-            var bal = await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address);
-
-            console.log("Test NFT Bal for User: " + bal);
+            expect( await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address)).equal(3);
         }
     });
 
@@ -283,31 +286,30 @@ describe("KeyResolver.deploy", function () {
 
             //create new key with correct schema and try again
 
-            let keyData = '0x000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010446572697661746976654b6579322d32000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000137308201333081ec06072a8648ce3d02013081e0020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f3044042000000000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000000704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414102010103420004ea4f8d88bf9738928426055abeaa127743f5512b580a59734326926592e15da057a42a40d8c6be657622d927df84988afbd4597aa98c56fe05f7d6afa38319d0000000000000000000000000000000000000000000000000000000000000000000000000000000004008d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34';
+            let keyData = (abiCoder.encode(['string','bytes','bytes'],['DerivativeKey2-2',asn1key,'0x08d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34']));
+
 
             console.log("Create new derivate key.");
+            let request = {
+              schema: keySchemaUID,
+              data: {
+                recipient: deployAddr.address,
+                expirationTime: 0,
+                revocable: true,
+                refUID: rootKey1UID,
+                data: keyData,
+                value: 0
+              }
+            }
             //Now create a derivative key
             let newDerivedKey = await getUIDFromAttestTx(
-              EASContract.attest({
-                schema: keySchemaUID,
-                data: {
-                  recipient: deployAddr.address,
-                  expirationTime: 0,
-                  revocable: true,
-                  refUID: rootKey1UID,
-                  data: keyData,
-                  value: 0
-                }
-              })
+              EASContract.attest(request)
             );
 
-            //try to mint
-            console.log("Attempt to mint token 59 with attestation with new derivative key (after revocation).")
+            // "Attempt to mint token 59 with attestation with new derivative key (after revocation)
             await NFTWithAttestation.connect(nftUserAddr).mintUsingAttestation(signedAttestation59);
-              
-            var bal = await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address);
+            expect( await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address)).equal(4);
 
-            console.log("Test NFT Bal for User: " + bal);
         }
     });
 
@@ -334,4 +336,10 @@ describe("KeyResolver.deploy", function () {
             
         }
     });
+
+    it("supportInterface", async function(){
+      {
+          
+      }
+  });
 });
