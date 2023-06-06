@@ -211,7 +211,6 @@ describe("KeyResolver.deploy", function () {
 
               //Check NFT ownership
               var bal = await keyResolver.connect(deployAddr).balanceOf(testAddr2.address);
-
               console.log("Test Addr2 Bal: " + bal);
         }
     });
@@ -288,7 +287,6 @@ describe("KeyResolver.deploy", function () {
 
             let keyData = (abiCoder.encode(['string','bytes','bytes'],['DerivativeKey2-2',asn1key,'0x08d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34']));
 
-
             console.log("Create new derivate key.");
             let request = {
               schema: keySchemaUID,
@@ -302,7 +300,7 @@ describe("KeyResolver.deploy", function () {
               }
             }
             //Now create a derivative key
-            let newDerivedKey = await getUIDFromAttestTx(
+            derivedKey1_1UID = await getUIDFromAttestTx(
               EASContract.attest(request)
             );
 
@@ -311,6 +309,55 @@ describe("KeyResolver.deploy", function () {
             expect( await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address)).equal(4);
 
         }
+    });
+
+    it("Test fetching valid keys", async function(){
+      {
+        //first fetch resolver address from schema registry
+        //You need the SchemaUID for the root key (only 1), and the rootKeyUID for the root attestation 
+        //  for the keychain you want to check 
+        let schemaReturn = await schemaRegistry.connect(deployAddr).getSchema(keySchemaUID);
+        //
+        console.log("Resolver Addr: " + schemaReturn.resolver);
+
+        //NB the resolver address could be cached but this is to show method from 1st principles
+        const KeyResolverContract = await ethers.getContractFactory("KeyResolver");
+        const keyResolverInstance = await KeyResolverContract.attach(schemaReturn.resolver);
+
+        //now find valid keys
+        let signingData = await keyResolverInstance.getValidSigningAddresses(rootKey1UID);
+        let keys = signingData.signingKeys;
+
+        console.log("Keys: " + keys);
+
+        expect( keys.length == 3, "Should have 3 keys at this stage");
+        
+        console.log("Revoke a key");
+
+        //revoke a key
+        await EASContract.revoke({ 
+          schema: keySchemaUID,
+          data: {
+            uid: derivedKey1_1UID,
+            value: 0
+          }
+        });
+
+        signingData = await keyResolverInstance.getValidSigningAddresses(rootKey1UID);
+        keys = signingData.signingKeys;
+
+        console.log("Keys: " + keys);2
+
+        expect( keys.length == 2, "Should have 2 keys at this stage");
+       
+
+
+        //now call valid keys on
+
+        //expect( await NFTWithAttestation.connect(nftUserAddr).balanceOf(nftUserAddr.address)).equal(1);
+
+        //getValidSigningAddresses(bytes32 rootUID)
+      }
     });
 
     it("Test NFT root key transfer and issue derivatives from new account", async function(){
