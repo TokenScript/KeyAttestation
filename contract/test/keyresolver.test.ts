@@ -7,7 +7,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
 import {BigNumber, Contract} from "ethers";
 import exp from "constants";
-import { keccak256 } from "ethers/lib/utils";
+import { keccak256, sha256 } from "ethers/lib/utils";
 
 const { solidityKeccak256, hexlify, toUtf8Bytes } = utils;
 
@@ -501,7 +501,7 @@ describe("KeyResolver.deploy", function () {
       }
     });
 
-    function getCollectionHash(schemaUID: any, signerPublicKey: any, eventId: any) 
+    function getCollectionHash(schemaUID: any, signerPublicKey: any, eventId: any)
     {
       const parts = [];
 
@@ -513,13 +513,9 @@ describe("KeyResolver.deploy", function () {
   
       console.log("Attestation hash text: ", parts.join("-"));
 
-
-
-      console.log("Yo: " + encoder.encode(parts.join("-")));
+      console.log("encoded: " + encoder.encode(parts.join("-")));
 
       let uidHash = keccak256(encoder.encode(parts.join("-")));
-
-      //return sha256(encoder.encode(parts.join("-")));
 
       return uidHash;
     }
@@ -608,14 +604,21 @@ describe("KeyResolver.deploy", function () {
           //incorrect signature
           await expect(attestationView.connect(nftUserAddr).mintUsingEasAttestation(request, signature2)).to.be.revertedWith('Attestation not issued by correct authority');
 
-          //timestamp invalid:
-          let lala = "0x08d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34";
-          //0fc4f9d4336077e9799e47a8a0565ba4ff4e041f53a9d51fd45095f9bdd06bb8-08d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34-6
+          //TODO: timestamp invalid:
+          
 
-          //function getCollectionHash(schemaUID: any, signerPublicKey: any, eventId: any)
-          let collectionHash = getCollectionHash(offchainSchemaUID, lala, "6");
-          console.log("Result Hash: " + collectionHash);
         }
+    });
+
+    it("Test collection hash", async function(){
+      {
+        let fullPublicKey = "0x0408d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34";
+        let schemaTest = "0x7f6fb09beb1886d0b223e9f15242961198dd360021b2c9f75ac879c0f786cafd";
+        let eventId = "devcon6";
+
+        let collectionHash = getCollectionHash(schemaTest, fullPublicKey, eventId);
+        console.log("Result Hash: " + collectionHash);
+      }
     });
 
     it("Test NFT burn from root account", async function(){
