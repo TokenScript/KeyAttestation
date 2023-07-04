@@ -41,7 +41,7 @@
     "@openzeppelin/contracts": "^4.8.2",
     "@tokenscript/attestation": "github:tokenscript/attestation",
     "dotenv": "^10.0.0",
-    "stl-contracts": "^2.2.0",
+    "stl-contracts": "^2.3.2",
     "tokenscript": "^0.0.1"
   }
 }

@@ -520,20 +520,6 @@ describe("KeyResolver.deploy", function () {
       return uidHash;
     }
 
-    function calcContractAddress2(sender: SignerWithAddress, nonce: number)
-    {
-        const rlp = require('rlp');
-        const keccak = require('keccak');
-
-        var input_arr = [ sender.address, nonce ];
-        var rlp_encoded = rlp.encode(input_arr);
-
-        var contract_address_long = keccak('keccak256').update(rlp_encoded).digest('hex');
-
-        var contract_address = contract_address_long.substring(24); //Trim the first 24 characters.
-        return "0x" + contract_address;
-    }
-
     it("Test minting NFT using EAS Attestation", async function(){
         {
           let expirationTime: number;
@@ -561,7 +547,7 @@ describe("KeyResolver.deploy", function () {
             revocable: true, 
             refUID: ZERO_BYTES32, 
             data: offchainSchema,
-            value: 0, 
+            //value: 0, 
             schema: offchainSchemaUID
           }
 
