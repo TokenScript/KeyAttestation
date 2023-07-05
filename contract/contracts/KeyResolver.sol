@@ -56,8 +56,8 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
 
     string private constant CONTRACT_URI = "ipfs://QmY6D8ga9hvSKqAxXntU7xi58fmgKoD99T51zT8eSSGqbL";
 
+    // in current case its not a root key MAP, but all key MAP, where first ID is main
     mapping(bytes32 => bytes32[]) rootKeyMap;
-    mapping(uint256 => bytes32) tokenIdUIDMap;
 
     constructor(IEAS eas) SchemaResolver(eas) ERC721("Key Attestations", "ATTN") {
         attester = msg.sender;
@@ -99,25 +99,26 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
         {
             //Declare as NFT
             tokenId = rootTokenId(attestation.uid);
-            require(rootKeyMap[attestation.uid].length == 0, "Attestation already exists");
+            require(rootKeyMap[attestation.uid & TOKEN_ID_MASK].length == 0, "Attestation already exists");
             _mint(attestation.attester, tokenId);
-            rootKeyMap[attestation.uid].push(attestation.uid);
+            rootKeyMap[attestation.uid & TOKEN_ID_MASK].push(attestation.uid);
         }
         else //can only be called by root key owner or creator
         {
             tokenId = rootTokenId(attestation.refUID);
             Attestation memory rootAttestation = _eas.getAttestation(attestation.refUID);
             require (attestation.attester == rootAttestation.attester || attestation.attester == ownerOf(tokenId), "Derivative key can only be created by root key owner"); //derivative can be issued by attestation root key or owner of root key NFT
-            // TODO tokenId will be ...1 ...2 ...4 ...7 fix
-            tokenId += rootKeyMap[attestation.refUID].length;
+            tokenId += rootKeyMap[attestation.refUID & TOKEN_ID_MASK].length;
             _mint(attestation.recipient, tokenId);
-            rootKeyMap[attestation.refUID].push(attestation.uid);
+            rootKeyMap[attestation.refUID & TOKEN_ID_MASK].push(attestation.uid);
         }
-
-        tokenIdUIDMap[tokenId] = attestation.uid;
 
         //metadata is sourced from website
         return true;
+    }
+
+    function getUidForTokenId(uint tokenId) public view returns(bytes32){
+        return rootKeyMap[bytes32(tokenId) & TOKEN_ID_MASK][uint(bytes32(tokenId) & (TOKEN_ID_MASK ^ 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff))-1];
     }
 
     /// @notice Called by EAS Contracts if a schema has resolver set while revoking attestations.
@@ -140,7 +141,8 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
 
     function tokenURI(uint256 id) public view virtual override returns (string memory) {
         require(_exists(id), "Token does not exist");
-        bytes32 uid = tokenIdUIDMap[id];
+        // bytes32 uid = tokenIdUIDMap[id];
+        bytes32 uid = getUidForTokenId(id);
         Attestation memory attestation = _eas.getAttestation(uid);  
 
         (
@@ -157,13 +159,13 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
             );
 
          return string(abi.encodePacked(BASE_TOKEN_METADATA_URI, block.chainid.toString(), "/", contractAddress(), "?tokenId=", id.toHexString(), 
-            "&uid=", tokenIdToUID(id).toHexString(), "&name=", name, getValidityData(attestation)));
+            "&uid=", uint(getUidForTokenId(id)).toHexString(), "&name=", name, getValidityData(attestation)));
     }
 
-    function getValidityData(Attestation memory attestation) private view returns (string memory) {
+    function getValidityData(Attestation memory attestation) public view returns (string memory) {
         Attestation memory rootAttn = _eas.getAttestation(attestation.refUID);
         uint64 revocationTime = attestation.revocationTime;
-        if (rootAttn.revocationTime > 0 && revocationTime == 0) { //Take into account the root key being revoked
+        if (rootAttn.revocationTime > 0 && (revocationTime == 0 || revocationTime > rootAttn.revocationTime)) { //Take into account the root key being revoked
             revocationTime = rootAttn.revocationTime;
         }
         return string(abi.encodePacked("&isValid=", getAttestationValidityText(attestation), "&timestamp=", uint256(attestation.time).toString(), 
@@ -171,14 +173,9 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
             "&revocationTime=", uint256(revocationTime).toString()));
     }
 
-    function tokenIdToUID(uint256 id) private view returns (uint256) {
-        require(_exists(id), "Token does not exist");
-        return uint256(tokenIdUIDMap[id]);
-    }
-
     function tokenIdToAttestation(uint256 id) public view returns (Attestation memory) {
         require(_exists(id), "Token does not exist");
-        return _eas.getAttestation(tokenIdUIDMap[id]);
+        return _eas.getAttestation(getUidForTokenId(id));
     }
 
     function getAttestation(bytes32 uid) public view returns (Attestation memory) {
@@ -193,9 +190,10 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
         }
     }
 
-    function isPayable() public pure virtual override returns (bool) {
-        return true;
-    }
+    // no need to nake payable until we add withdraw function
+    // function isPayable() public pure virtual override returns (bool) {
+    //     return true;
+    // }
 
     function contractAddress() internal view returns (string memory) {
         return Strings.toHexString(uint160(address(this)), 20);
@@ -208,11 +206,12 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
         if (!isKeyValid(rootAttn)){
             return false;
         }
+        rootUID = rootUID & TOKEN_ID_MASK;
         uint length = rootKeyMap[rootUID].length;
         if (length == 1){
             return verifySigner(rootAttn, signer);
         }
-        for (uint256 i = 1; i < rootKeyMap[rootUID].length; i++) {
+        for (uint256 i = 0; i < rootKeyMap[rootUID].length; i++) {
             bytes32 thisUID = rootKeyMap[rootUID][i];
             Attestation memory thisAttn = _eas.getAttestation(thisUID);  
             if (verifySigner(thisAttn, signer)){
@@ -236,6 +235,7 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
 
     function getValidSigningAddresses(bytes32 rootUID) public view returns (address[] memory signingKeys, bytes32[] memory uids) {
         uint size = 0;
+        rootUID = rootUID & TOKEN_ID_MASK;
         Attestation memory rootAttn = _eas.getAttestation(rootUID);
         for (uint256 i = 0; i < rootKeyMap[rootUID].length; i++) {
             if (isKeyValid(_eas.getAttestation(rootKeyMap[rootUID][i])) && isKeyValid(rootAttn)) {
@@ -272,7 +272,7 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
         require(ownerOf(tokenId) == msg.sender, "burn: not owned");
         //burn token and revoke attestation. If root, it will completely revoke all derivatives
         //revoke associated attestation
-        bytes32 uid = tokenIdUIDMap[tokenId];
+        bytes32 uid = getUidForTokenId(tokenId);
         Attestation memory attestation = _eas.getAttestation(uid);
         //is this root attestation?
         if (attestation.uid != bytes32(0) && attestation.refUID == bytes32(0)) {
@@ -289,7 +289,8 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
         }
 
         //burn token
-        _burn(tokenId);
+        // code cant be reached
+        // _burn(tokenId);
     }
 
     // Only allow root owner to transfer tokens
@@ -300,8 +301,9 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
         bytes memory _data
     ) public override(ERC721, IERC721) onlyOwner {
         require(_isApprovedOrOwner(_msgSender(), tokenId), "ERC721: transfer caller is not owner nor approved");
-        Attestation memory attestation = _eas.getAttestation(tokenIdUIDMap[tokenId]);
+        Attestation memory attestation = _eas.getAttestation(getUidForTokenId(tokenId));
         require(attestation.refUID == bytes32(0), "Only root token can be transferred");
+        // TODO attestation.attester is single address, that means tokeken can be only transferred one time from attestor, no way to transfer it again
         require(attestation.attester == msg.sender, "Only original root owner can transfer");
         // TODO test transfer
         _safeTransfer(from, to, tokenId, _data);
@@ -314,8 +316,9 @@ contract KeyResolver is IKeyResolver, SchemaResolver, ERC721Enumerable, ERC5169,
     ) public override(ERC721, IERC721) onlyOwner {
         //solhint-disable-next-line max-line-length
         require(_isApprovedOrOwner(_msgSender(), tokenId), "ERC721: transfer caller is not owner nor approved");
-        Attestation memory attestation = _eas.getAttestation(tokenIdUIDMap[tokenId]);
+        Attestation memory attestation = _eas.getAttestation(getUidForTokenId(tokenId));
         require(attestation.refUID == bytes32(0), "Only root token can be transferred");
+        // TODO attestation.attester is single address, that means tokeken can be only transferred one time from attestor, no way to transfer it again
         require(attestation.attester == msg.sender, "Only original root owner can transfer");
         _transfer(from, to, tokenId);
     }
