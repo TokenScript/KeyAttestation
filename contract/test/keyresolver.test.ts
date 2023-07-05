@@ -396,26 +396,6 @@ describe("KeyResolver.deploy", function () {
         }
     });
 
-    it("Test NFT IDs ", async function(){
-      {
-          let request = {
-            schema: keySchemaUID,
-            data: {
-              // wallet, which will receive minted NFT(KeyResolver)
-              recipient: deployAddr.address,
-              expirationTime: 0,
-              revocable: true,
-              refUID: rootKey1UID,
-              data: "0x",
-              value: 0
-            }
-          }
-          let id1 = (await (await EASContract.attest(request)).wait()).events[1].topics[3];
-          expect( (await (await EASContract.attest(request)).wait()).events[1].topics[3]).to.equal("0x"+(BigInt(id1)+BigInt(1)).toString(16));
-
-      }
-    });
-
     it("KeyResolver NFT tokenURI", async function(){
       {
           const id = await keyResolver.tokenByIndex(0);
@@ -436,8 +416,6 @@ describe("KeyResolver.deploy", function () {
       }
   });
 
-<<<<<<< HEAD
-=======
     it("Test fetching valid keys", async function(){
       {
         //first fetch resolver address from schema registry
@@ -490,7 +468,6 @@ describe("KeyResolver.deploy", function () {
       }
     });
 
->>>>>>> 0c07dab (update)
     it("Test NFT root key transfer and issue derivatives from new account", async function(){
         {
             
@@ -519,5 +496,25 @@ describe("KeyResolver.deploy", function () {
       {
           
       }
+  });
+
+  it("Test NFT IDs ", async function(){
+    {
+        let request = {
+          schema: keySchemaUID,
+          data: {
+            // wallet, which will receive minted NFT(KeyResolver)
+            recipient: deployAddr.address,
+            expirationTime: 0,
+            revocable: true,
+            refUID: rootKey1UID,
+            data: "0x",
+            value: 0
+          }
+        }
+        let id1 = (await (await EASContract.attest(request)).wait()).events[1].topics[3];
+        expect( (await (await EASContract.attest(request)).wait()).events[1].topics[3]).to.equal("0x"+(BigInt(id1)+BigInt(1)).toString(16));
+
+    }
   });
 });
