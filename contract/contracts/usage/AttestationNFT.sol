@@ -59,6 +59,23 @@ contract DoorAttestation is ERC721, Ownable, ERC5169, UseKeyAttestation, ASNAtte
         return attestationId;
     }
 
+    // TODO test ABI ENCODED attestation
+    // function mintUsingAttestation2(bytes memory attestation) public returns (uint256) {
+    //     (bytes memory ticket, bytes memory signature) = abi.decode(attestation, (bytes,bytes));
+    //     address issuer = recoverSigner(ticket,signature);
+    //     (address subjectAddress, uint attestationId, uint timeStamp) = abi.decode(ticket, (address,uint,uint));
+    //     //require (issuer == _issuerAddress, "Attestation not issued by correct authority");
+    //     // require (timeStampValid, "Attestion timestamp not valid");
+    //     require (subjectAddress == msg.sender, "Account not authorised to use this Attestation");
+    //     bool keyValid = this.validateKey(issuer);
+    //     require (keyValid, "Attestation issuer key not valid");
+
+    //     //NB _mint checks for attestation already minted
+    //     _mint(msg.sender, attestationId);
+
+    //     return attestationId;
+    // }
+
     function validateAttestation(bytes memory attestation) public view returns (bool isValid)
     {
         (address issuer,,, bool timeStampValid) = verifyAttestation(attestation);
