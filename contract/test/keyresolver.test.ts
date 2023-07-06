@@ -1,18 +1,17 @@
 import {parseEthers} from "../EthUtils";
 const { ethers, upgrades } = require('hardhat');
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-import { ContractTransaction, Event, utils } from 'ethers';
+import { Bytes, ContractTransaction, Event, utils } from 'ethers';
 
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
 import {BigNumber, Contract} from "ethers";
 import exp from "constants";
+import { keccak256, sha256 } from "ethers/lib/utils";
 import { KeyPair } from "@tokenscript/attestation/dist/libs/KeyPair";
 import { hexStringToUint8, uint8tohex } from "@tokenscript/attestation/dist/libs/utils";
 import {EpochTimeValidity} from "@tokenscript/attestation/dist/asn1/shemas/EpochTimeValidity";
 import { AsnProp, AsnPropTypes, AsnType, AsnTypeTypes, AsnParser, AsnSerializer} from "@peculiar/asn1-schema";
-
-
 
 const { solidityKeccak256, hexlify, toUtf8Bytes } = utils;
 
@@ -66,6 +65,7 @@ describe("KeyResolver.deploy", function () {
     let schemaRegistry: Contract;
     let EASContract: Contract;
     let keyResolver: Contract;
+    let attestationView: Contract;
     let NFTWithAttestation: Contract;
     let TestNft: Contract;
     let keySchemaUID: string;
@@ -82,11 +82,13 @@ describe("KeyResolver.deploy", function () {
     let testAddr2: SignerWithAddress;
     let deployAddr: SignerWithAddress;
     let nftUserAddr: SignerWithAddress;
+    let issuerKey: SignerWithAddress;
     let ticketSigner: SignerWithAddress;
     let provider: any;
 
     let ganacheChainId: any;
     const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
+    const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
      // Fake: Identifier has a different ID number, but correct signature (Twitter imposter)
     const fakeUniversalIdAttestation = '0x3082026a30820217308201c4a003020113020101300906072a8648ce3d040230193117301506035504030c0e6174746573746174696f6e2e69643022180f32303231303932363031333732375a180f39393939313233313132353935395a30393137303506092b06010401817a01390c2868747470733a2f2f747769747465722e636f6d2f7a68616e67776569777520323035353231363737308201333081ec06072a8648ce3d02013081e0020101302c06072a8648ce3d0101022100fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f3044042000000000000000000000000000000000000000000000000000000000000000000420000000000000000000000000000000000000000000000000000000000000000704410479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8022100fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414102010103420004950c7c0bed23c3cac5cc31bbb9aad9bb5532387882670ac2b1cdf0799ab0ebc764c267f704e8fdda0796ab8397a4d2101024d24c4efff695b3a417f2ed0e48cd300906072a8648ce3d040203420066dd0460a8920709cabc1003c934d5fdfed47af4dd03b51dbaed878093152c9a4335f1eafdc7f2d20fe8dd15dcd08df8a9cc1ca76526a0e2450d80c233cbf36b1c300906072a8648ce3d04020342004ce8adbd9a9a338cd941d8838b68fbea154e02471cfe92a3a0c5559c104275be16841e4fdecff47707b9904866f78ef0d2786d51c7f3894fbbbf7c77b346cb6c1c';
@@ -95,6 +97,7 @@ describe("KeyResolver.deploy", function () {
     const anyPrivateKey2 = '0x2222222222222222222222222222222222222222222222222222222222222666';
     const ticketSignerKey = '0x2222222222222222222222222222222222222222222222222222222222222667';
     const testPrivateKey = '0x2222222222222222222222212345622222222222222222222222222222222666'; //There's no value on this guy :) ID 57 : 0xA2Cd3a780ea3E9DF63Fe60E3b9eF0C720fAfa742
+    const issuerKeyHex = '0x7411181bdb51a24edd197bacda369830b1c89bbf872a4c2babbdd2e94f25d3b5'; //issuer private key
 
     function calcContractAddress(sender: SignerWithAddress, nonce: number)
     {
@@ -131,7 +134,6 @@ describe("KeyResolver.deploy", function () {
         return (await getUIDsFromAttestEvents(receipt.events))[0];
     };
 
-
     it("deploy contracts", async function(){
         [owner, addr1, addr2] = await ethers.getSigners();
 
@@ -139,6 +141,7 @@ describe("KeyResolver.deploy", function () {
         testAddr2 = new ethers.Wallet(attestationSubjectPrivateKey, owner.provider); //testAddr2 address is subjectAddress
         deployAddr = new ethers.Wallet(anyPrivateKey2, owner.provider);
         nftUserAddr = new ethers.Wallet(testPrivateKey, owner.provider);
+        issuerKey = new ethers.Wallet(issuerKeyHex, owner.provider);
         ticketSigner = new ethers.Wallet(ticketSignerKey, owner.provider);
         
         testAddrKeyPair = KeyPair.fromPrivateUint8(hexStringToUint8(anyPrivateKey),"secp256k1");
@@ -157,7 +160,6 @@ describe("KeyResolver.deploy", function () {
         // deployAddrKeyPair pubKey:  048e6cd41ebd0ca0ac4445baf8ae9d3d275045e38e1f54ff5d6c645105d956b65cb258a80016a82c818e3ab20f245bc8c3fd1f648ad116cdba6fb2587cec74aeb7
         // nftUserAddrKeyPair pubKey:  04367bbd2f14741cdb258578a08a6670f6157b0cc6901cb48695a650cb9f4aa66af2b9d106094bbb7d6c77d920645e8587b5a2ed9b7a8731299282c13b66fa8cd3
         // ticketSignerKeyPair pubKey:  049b889c1a04c4d7189d8646065da29f9da87d0acf76dbbd3893e27b67e9bf9957a4dd251106e1ca39177f3ee42056a255b782f59417e92b06f1d537f2ec03846e
-
         
         await addr1.sendTransaction({
             to: deployAddr.address,
@@ -244,7 +246,7 @@ describe("KeyResolver.deploy", function () {
                     value: 0
                   }
                 })
-              ); 
+              );
 
               console.log("Root Key #1 UID: " + rootKey1UID);
 
@@ -302,9 +304,17 @@ describe("KeyResolver.deploy", function () {
               //Check NFT ownership
               var bal = await keyResolver.connect(deployAddr).balanceOf(testAddr2.address);
               console.log("Test Addr2 Bal: " + bal);
+
+              //deploy decoder
+              const AttestationView = await ethers.getContractFactory("AttestationDecoder");
+              attestationView = await AttestationView.connect(deployAddr).deploy(rootKey1UID, EASContract.address);
+
+              //what is the chainId?
+              var bal = await attestationView.connect(deployAddr).getChainId();
+              console.log("Test ChainId: " + bal);
+
               expect (await keyResolver.balanceOf(deployAddr.address)).to.equal(2);
               expect (await keyResolver.balanceOf(testAddr2.address)).to.equal(1);
-              
         }
     });
 
@@ -360,7 +370,6 @@ describe("KeyResolver.deploy", function () {
                   value: 0
                 }
               });
-
         
             //now attempt to mint TokenId 59, signed by key 1 
             console.log("Check that attestation can no longer be used.")
@@ -457,8 +466,6 @@ describe("KeyResolver.deploy", function () {
         console.log("Keys: " + keys);
 
         expect( keys.length == 2, "Should have 2 keys at this stage");
-       
-
 
         //now call valid keys on
 
@@ -468,10 +475,258 @@ describe("KeyResolver.deploy", function () {
       }
     });
 
-    it("Test NFT root key transfer and issue derivatives from new account", async function(){
-        {
-            
+    //attestationView
+    it("Test Validation of offchain EAS Attestation", async function(){
+      {
+        let expirationTime: number;
+        let offchainRecipient = "0xa20efc4b9537d27acfd052003e311f762620642d";
+        let offchainStartTime = 1686832434;
+        let offchainSchemaUID = "0x5f26e664ab43494dbfca940b7ca5a84f3c699e0c3e48aebecb29a4458146f0e9";
+        let offchainSchemaUID2 = "";
+
+        expirationTime = 0;
+  
+        let offChainSchema =  "0x000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000030390000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000046970667300000000000000000000000000000000000000000000000000000000";
+        let offChainSchema2 = "0x0000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000001e2400000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000046970667300000000000000000000000000000000000000000000000000000000"
+
+        let offchainSchema3 = "0x00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000012000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000000013600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000731323334353637000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041040742a3ea8bc9c4c6e81e441a9421cb7b6e5d66abb44a2e2195ffccf47f1805aa1fcd6efe4c0d80720e9c9041ad25b9886fe18bc7a638e38312d59f9ee9c649640000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000046970667300000000000000000000000000000000000000000000000000000000";
+
+        let request = {
+          recipient: offchainRecipient, 
+          time: offchainStartTime, 
+          expirationTime: 0, 
+          revocable: true, 
+          refUID: ZERO_BYTES32, 
+          data: offChainSchema,
+          value: 0, 
+          schema: offchainSchemaUID
         }
+
+        let request2 = {
+          recipient: offchainRecipient, 
+          time: offchainStartTime, 
+          expirationTime: 0, 
+          revocable: true, 
+          refUID: ZERO_BYTES32, 
+          data: offchainSchema3,
+          value: 0, 
+          schema: offchainSchemaUID
+        }
+
+        let signature = "0x619dcf923ecc32bcdf539f48e1705b4d5ed3b55f08df1a81cdd6ec38e38a156f082591ce9e0d43652b6401add56d28506b9b2eb3a88021147c54479d24f9e3e51b";
+        let signature2 = "0x5c6f9ab5b2731afe62e2b4179e19ac05a9be6c16e3c31954d880908920428a866f32540f86c4344c9fa7475f038391b04a22c7d015371a5704777fbde9a4c3151c";
+
+        let result = await attestationView.connect(nftUserAddr).verifyEASAttestation(request, signature);
+        console.log("Result: " + result);
+        console.log("Result: " + result.input);
+
+        //since we revoked the key this should fail
+        expect(result.issuerValid == false, "Key should be invalid");
+
+        //add key 
+        let data = (abiCoder.encode(['string', 'bytes', 'bytes'], ['DerivativeKey2-1', asn1key, '0x08d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34']));
+
+        derivedKey2_1UID = await getUIDFromAttestTx(
+          EASContract.attest({
+            schema: keySchemaUID,
+            data: {
+              recipient: testAddr2.address,
+              expirationTime,
+              revocable: true,
+              refUID: rootKey1UID,
+              data,
+              value: 0
+            }
+          })
+        );
+
+        console.log("Add derived key back in");
+
+        result = await attestationView.connect(nftUserAddr).verifyEASAttestation(request, signature);
+
+        console.log("Result: " + result);
+
+        //since we revoked the key this should fail
+        expect(result.issuerValid == true, "Key should be now be valid");
+        expect(result.attnValid == true, "Attestation should be valid");
+
+        var revocationData = ethers.utils.solidityPack(['string', 'address','address', 'uint64', 'uint64', 'bool', 'bytes', 'bytes', 'uint32'], [
+          offchainSchemaUID,
+          offchainRecipient,
+          ZERO_ADDRESS,
+          offchainStartTime,
+          0,
+          true,
+          ZERO_BYTES32,
+          offChainSchema,
+          0
+        ]);
+
+        //access issuer key?
+        console.log("Issuer: " + result.issuer);
+
+        //pull conferenceId from the schema - first value uint256
+        let decodeData = await ethers.utils.defaultAbiCoder.decode(
+          ['uint256','uint256','uint8','string'],
+          offChainSchema2
+        )
+
+        //uid needs to take into account issuer and conferenceId
+        var uid = ethers.utils.solidityPack(['bytes32','address','uint256'], [
+          offchainSchemaUID,
+          result.issuer,
+          decodeData[0]
+        ]);
+
+        console.log("Conglom: " + uid);
+
+        let uidHash = keccak256(uid);
+        console.log("Hash: " + uidHash);
+        
+        await addr1.sendTransaction({
+            to: issuerKey.address,
+            value: ethers.utils.parseEther("1.0")
+        });
+
+        let revokeId = keccak256(revocationData);
+
+        console.log("data: " + revocationData);
+        console.log("Hash: " + revokeId)
+
+        console.log("Perform revocation of offchain attestation");
+
+        await EASContract.connect(issuerKey).revokeOffchain(revokeId);
+
+        //now test again
+        result = await attestationView.connect(nftUserAddr).verifyEASAttestation(request, signature);
+        console.log("Result: " + result);
+
+        expect(result.attnValid == false, "Attestation should now be invalid");
+        expect(result.revocationTime > 0, "Revocation time should be set");
+
+      }
+    });
+
+    function getCollectionHash(schemaUID: any, signerPublicKey: any, eventId: any)
+    {
+      const parts = [];
+
+      parts.push(schemaUID.substring(2));
+      parts.push(signerPublicKey.substring(2));
+      parts.push(eventId);
+  
+      const encoder = new TextEncoder();
+  
+      console.log("Attestation hash text: ", parts.join("-"));
+
+      console.log("encoded: " + encoder.encode(parts.join("-")));
+
+      let uidHash = keccak256(encoder.encode(parts.join("-")));
+
+      return uidHash;
+    }
+
+    it("Test minting NFT using EAS Attestation", async function(){
+        {
+          let expirationTime: number;
+          let offchainStartTime = 1687413726;
+          let offchainStartTime2 = 1687376958;
+          let offchainSchemaUID = "0x0fc4f9d4336077e9799e47a8a0565ba4ff4e041f53a9d51fd45095f9bdd06bb8";
+
+          let offchainSchemaUID2 = "0x5f26e664ab43494dbfca940b7ca5a84f3c699e0c3e48aebecb29a4458146f0e9";
+          let offchainData = "0x000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000030390000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000046970667300000000000000000000000000000000000000000000000000000000";
+
+          expirationTime = 0;
+
+          var bal = await attestationView.connect(nftUserAddr).balanceOf(nftUserAddr.address);
+          console.log("Current NFT Bal: " + bal);
+
+          let offchainSchema  = "0x00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000012000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000136000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007313233343536370000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000410410630a1f39c218d405d50ec4b6c47aa58bff4cf8e0040ee870367dab367e4d3b16e7bcaa6fdef4e3a7d4728715a5c249ac32d4d0b063c203f550c249686ed7930000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000046970667300000000000000000000000000000000000000000000000000000000";
+          let offchainSchema2 = "0x00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000012000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000000136000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007313233343532330000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000410420446f63fb5a63aab5bb61274550b95da61b397414adcb003f34a089ca994c5b11484077adeb7b3b66c0a6e44c06a53b2ea752f0f96fcc5e11c940f99e766ee6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000035697066733a2f2f516d56596e316f6767414832377372733967797179776768426e4559486745794c44415170673644454a76354c4b0000000000000000000000";
+          
+          let signature = "0x81404c7a189cae8040d249dae5b54de0578a6b89d00cacb6a70c8aa332cf741856bc62cd68ff5ffb859f369c4717bbe5d310679f3712fa346fd2a77e5c0fb7841c";
+
+          let signature2 = "0x26411b4b06f540a745b41e69a245ced6bad3122f928bcf38872b15969aa8a4ea4f7dd084343037b53fc0da04070c2f09a0af844945a5f879a63b8b1d8db8582a1b";
+
+          let request = {
+            recipient: nftUserAddr.address, 
+            time: offchainStartTime, 
+            expirationTime: 0, 
+            revocable: true, 
+            refUID: ZERO_BYTES32, 
+            data: offchainSchema,
+            schema: offchainSchemaUID
+          }
+
+          console.log("Addr: " + nftUserAddr.address);
+
+          let result = await attestationView.connect(nftUserAddr).verifyEASAttestation(request, signature);
+
+          console.log("ResultA: " + result);
+          console.log("ResultB: " + result.input);
+
+          //now attempt to mint using attestation
+          let txHash = await attestationView.connect(nftUserAddr).mintUsingEasAttestation(request, signature);
+          let txRes = await txHash.wait();
+          console.log("Gas used to mint NFT: ", txRes.gasUsed.toString());
+
+          console.log("TxHash: " + txRes.txHash);
+
+          //check balance
+          var bal = await attestationView.connect(nftUserAddr).balanceOf(nftUserAddr.address);
+          console.log("New NFT Bal: " + bal);
+
+          //attempt to dump the schema data
+          result = await attestationView.connect(nftUserAddr).decodeAttestationData(request);
+          console.log("Decode: " + result);
+
+          let requestBad = {
+            recipient: nftUserAddr.address, 
+            time: offchainStartTime2, 
+            expirationTime: 0, 
+            revocable: true, 
+            refUID: ZERO_BYTES32, 
+            data: offchainSchema,
+            schema: offchainSchemaUID
+          }
+
+          //test negative
+          await expect(attestationView.connect(nftUserAddr).mintUsingEasAttestation(requestBad, signature)).to.be.revertedWith('Attestation not issued by correct authority');
+
+          //incorrect signature
+          await expect(attestationView.connect(nftUserAddr).mintUsingEasAttestation(request, signature2)).to.be.revertedWith('Attestation not issued by correct authority');
+
+          //timestamp invalid:
+          let badTimestamp = {
+            recipient: nftUserAddr.address, 
+            time: 1686728716, 
+            expirationTime: 1687419916, 
+            revocable: true, 
+            refUID: ZERO_BYTES32, 
+            data: offchainSchema2,
+            schema: offchainSchemaUID
+          }
+
+          //Signature for this attn
+          let badTimeStampSignature = "0x4ec0169b4df70addd4a739c4bd1c5342680f8e4e27ffccc8f3ff730c4cd825a4250e8fd962bace28c57faf1887a9abcc9bbefe45c530a7341adee8b880151af61c";
+          await expect(attestationView.connect(nftUserAddr).mintUsingEasAttestation(badTimestamp, badTimeStampSignature)).to.be.revertedWith('Attestion timestamp not valid');
+
+          //Attestion timestamp not valid
+          let resultn = await attestationView.connect(nftUserAddr).verifyEASAttestation(badTimestamp, badTimeStampSignature);
+
+          console.log("Bad Timestamp: " + resultn);
+        }
+    });
+
+    it("Test collection hash", async function(){
+      {
+        let fullPublicKey = "0x0408d4bc48bc518c82fb4ad216ef88c11068b3f0c40ba60c255f9e0a7a18382e27654eee6b2283266071567993392c1a338fa0b9f2db7aaab1ba8bf2179808dd34";
+        let schemaTest = "0x7f6fb09beb1886d0b223e9f15242961198dd360021b2c9f75ac879c0f786cafd";
+        let eventId = "devcon6";
+
+        let collectionHash = getCollectionHash(schemaTest, fullPublicKey, eventId);
+        console.log("Result Hash: " + collectionHash);
+      }
     });
 
     it("Test NFT burn from root account", async function(){
